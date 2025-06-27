@@ -171,3 +171,9 @@ python3 producer.py
 
 ![alt text](image-8.png)
 
+
+Напишем ansible playbook
+
+```
+ansible-playbook -i inventory.ini playbook.yml
+```

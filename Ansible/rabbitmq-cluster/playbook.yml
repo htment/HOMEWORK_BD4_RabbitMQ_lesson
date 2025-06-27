@@ -1,0 +1,107 @@
+---
+- name: Configure RabbitMQ cluster
+  hosts: rabbitmq_nodes
+  become: yes
+  vars:
+    first_node: "{{ groups['rabbitmq_nodes'][0] }}"
+
+  tasks:
+    - name: Install prerequisites
+      apt:
+        name:
+          - curl
+          - gnupg
+          - apt-transport-https
+        state: present
+        update_cache: yes
+
+    - name: Add RabbitMQ repository key
+      apt_key:
+        url: "https://github.com/rabbitmq/signing-keys/releases/download/2.0/rabbitmq-release-signing-key.asc"
+        state: present
+
+    - name: Add RabbitMQ repository
+      apt_repository:
+        repo: "deb https://packagecloud.io/rabbitmq/rabbitmq-server/ubuntu/ {{ ansible_distribution_release }} main"
+        state: present
+        filename: rabbitmq
+        update_cache: yes
+
+    - name: Install RabbitMQ server
+      apt:
+        name: "rabbitmq-server={{ rabbitmq_version }}-1"
+        state: present
+        allow_downgrade: yes
+
+    - name: Install management plugin
+      command: rabbitmq-plugins enable rabbitmq_management
+      changed_when: false
+
+    - name: Create RabbitMQ config directory
+      file:
+        path: /etc/rabbitmq
+        state: directory
+        mode: 0755
+
+    - name: Configure Erlang cookie
+      copy:
+        dest: /var/lib/rabbitmq/.erlang.cookie
+        content: "{{ rabbitmq_erlang_cookie }}"
+        owner: rabbitmq
+        group: rabbitmq
+        mode: 0400
+
+    - name: Create admin user
+      command: "rabbitmqctl add_user {{ rabbitmq_admin_user }} {{ rabbitmq_admin_password }}"
+      register: add_user
+      ignore_errors: yes
+      changed_when: "'already exists' not in add_user.stderr"
+
+    - name: Set admin user permissions
+      command: "rabbitmqctl set_user_tags {{ rabbitmq_admin_user }} administrator"
+      when: add_user is not failed or "'already exists' in add_user.stderr"
+
+    - name: Set admin user permissions
+      command: "rabbitmqctl set_permissions -p / {{ rabbitmq_admin_user }} '.*' '.*' '.*'"
+      when: add_user is not failed or "'already exists' in add_user.stderr"
+
+    - name: Configure RabbitMQ cluster
+      block:
+        - name: Stop RabbitMQ application
+          command: rabbitmqctl stop_app
+          when: inventory_hostname != first_node
+
+        - name: Join cluster
+          command: "rabbitmqctl join_cluster rabbit@{{ hostvars[first_node]['ansible_host'] }}"
+          when: inventory_hostname != first_node
+
+        - name: Start RabbitMQ application
+          command: rabbitmqctl start_app
+          when: inventory_hostname != first_node
+
+      when: inventory_hostname in groups['rabbitmq_nodes']
+
+    - name: Wait for RabbitMQ to be ready
+      wait_for:
+        port: 15672
+        delay: 10
+        timeout: 300
+      delegate_to: "{{ first_node }}"
+      run_once: yes
+
+    - name: Create HA policy
+      uri:
+        url: "http://{{ hostvars[first_node]['ansible_host'] }}:15672/api/policies/%2F/ha-all"
+        method: PUT
+        user: "{{ rabbitmq_admin_user }}"
+        password: "{{ rabbitmq_admin_password }}"
+        body_format: json
+        body:
+          pattern: ".*"
+          definition:
+            ha-mode: all
+            ha-sync-mode: automatic
+          apply-to: all
+        status_code: 204
+      delegate_to: localhost
+      run_once: yes

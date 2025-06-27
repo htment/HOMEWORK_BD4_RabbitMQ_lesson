@@ -1,0 +1,6 @@
+---
+rabbitmq_version: "3.10.7"
+rabbitmq_erlang_cookie: "SECRETCOOKIE"
+rabbitmq_admin_user: "admin"
+rabbitmq_admin_password: "securepassword"
+rabbitmq_cluster_nodes: "{{ groups['rabbitmq_nodes'] | map('extract', hostvars, ['ansible_host']) | list }}"
