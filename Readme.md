@@ -174,6 +174,9 @@ python3 producer.py
 
 Напишем ansible playbook
 
+https://github.com/htment/HOMEWORK_BD4_RabbitMQ_lesson/tree/main/Ansible/rabbitmq-cluster
+
+
 ```
 ansible-playbook -i inventory.ini playbook.yml
 ```
